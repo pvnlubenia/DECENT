@@ -1,8 +1,8 @@
-=======================================================
+========================================================
 
-  DECENT: DEcomposition of Chemical rEaction NeTworks
+  DECENT: DEcompositions of Chemical rEaction NeTworks
 
-=======================================================
+========================================================
 
 MATLAB was used to develop the functions used here.
 
