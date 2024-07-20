@@ -9,14 +9,16 @@
 %    table summarizing the deficiency, reactant deficiency, and reactant  %
 %    rank values of the entire network and of the subnetworks. The sum of %
 %    the subnetworks' network numbers, which may provide additional       %
-%    insights, also appear at the end of the table. The output variables  %
-%    'model', 'R', 'G', 'P', and 'results' allow the user to view the     %
-%    following, respectively:                                             %
+%    insights, also appear at the end of the table. The set of common     %
+%    complexes [3] and its cardinality are shown. The output variables    %
+%    'model', 'R', 'G', 'P', 'C', and 'results' allow the user to view    %
+%    the following, respectively:                                         %
 %       - Complete network with all the species listed in the 'species'   %
 %            field of the structure 'model'                               %
 %       - Matrix of reaction vectors of the network                       %
 %       - Undirected graph of R                                           %
 %       - Partitions representing the decomposition of the reactions      %
+%       - String list of common complexes                                 %
 %       - Complete table of network numbers                               %
 %                                                                         %
 % INPUT: model: a structure, representing the CRN (see README.txt for     %
@@ -26,21 +28,25 @@
 %    [1] Arceo C, Jose E, Lao A, Mendoza E (2017) Reactant subspaces and  %
 %           kinetics of chemical reaction networks. J Math Chem           %
 %           56(5):395–422. https://doi.org/10.1007/s10910-017-0809-x      %
-%    [2] Hernandez B, De la Cruz R (2021) Independent decompositions of   %
+%    [2] Fontanil L, Mendoza E (2022) Common complexes of decompositions  %
+%           and complex balanced equilibria of chemical reaction          %
+%           networks. MATCH Commun Math Comput Chem 87(2):329-366.        %
+%           https://doi.org/10.46793/match.87-2.329F                      %
+%    [3] Hernandez B, De la Cruz R (2021) Independent decompositions of   %
 %           chemical reaction networks. Bull Math Biol 83(76):1–23.       %
 %           https://doi.org/10.1007/s11538-021-00906-3                    %
-%    [3] Soranzo N, Altafini C (2009) ERNEST: a toolbox for chemical      %
+%    [4] Soranzo N, Altafini C (2009) ERNEST: a toolbox for chemical      %
 %           reaction network theory. Bioinform 25(21):2853–2854.          %
 %           https://doi.org/10.1093/bioinformatics/btp513                 %
 %                                                                         %
 % Created: 14 July 2024                                                   %
-% Last Modified: 15 July 2024                                             %
+% Last Modified: 19 July 2024                                             %
 %                                                                         %
 % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % %
 
 
 
-function [model, R, G, P, results] = FID_check(model)
+function [model, R, G, P, C, results] = FID_check(model)
     
 %
 % Step 1: Determine the finest independent decomposition of the network
@@ -194,6 +200,15 @@ num_components = max(component_numbers);
 % For the case of only one connected component
 if num_components == 1
     P = [ ];
+
+    % Generate the list of network numbers for the whole network
+    [model, ~, characteristics, notation, network] = networkNumbers(model);
+    
+    % Convert the list to a table
+    headers = {'Characteristics', 'Notation', 'Network'};
+    results = cell2table([characteristics, notation, network], 'VariableNames', headers);
+    results = convertvars(results, results.Properties.VariableNames, 'categorical');
+
     disp([model.id ' has no nontrivial independent decomposition.']);
     
     % 'return' exits the function; we don't need to continue the code
@@ -255,6 +270,10 @@ if length(cell2mat(P)) ~= size(R, 1)
     num_components = max(component_numbers);
     if num_components == 1
         P = [ ];
+        [model, ~, characteristics, notation, network] = networkNumbers(model);
+        headers = {'Characteristics', 'Notation', 'Network'};
+        results = cell2table([characteristics, notation, network], 'VariableNames', headers);
+        results = convertvars(results, results.Properties.VariableNames, 'categorical');
         disp([model.id ' has no nontrivial independent decomposition.']);
         return
     end
@@ -292,7 +311,7 @@ fprintf('\n\n')
 %
 
 % Generate the list of network numbers for the whole network
-[model, characteristics, notation, network] = networkNumbers(model);
+[model, ~, characteristics, notation, network] = networkNumbers(model);
 
 % Prepare a list of separators between the numbers for the entire network and the subnetworks
 separator = {'|'; '|'; '|'; '|'; '|'; '|'; '|'; '|'; '|'; '|'; '|'; '|'; '|'};
@@ -322,6 +341,9 @@ end
 % Initialize list of network numbers
 sums = { };
 
+% Initialize list of all complexes
+complexes = { };
+
 % Go through each subnetwork
 for i = 1:numel(P)
 
@@ -334,7 +356,7 @@ for i = 1:numel(P)
     end
 
     % Generate the network numbers for the subnetwork
-    [~, ~, ~, network_] = networkNumbers(model_P(i));
+    [model_P(i), all_complex, ~, ~, network_] = networkNumbers(model_P(i));
 
     % Add the network numbers to the list
     sums(:, end+1) = network_;
@@ -342,7 +364,89 @@ for i = 1:numel(P)
     % Append subnetwork network numbers to the original table of network numbers
     header_ = {['N', num2str(i)]};
     results = addvars(results, network_, 'NewVariableNames', header_);
+
+    % Initialize list of complexes
+    complexes_subnetwork = { };
+
+    % Go through each column of the matrix of complexes
+    for j = 1:size(all_complex, 2)
+
+        % Initialize complex name
+        complex = [ ];
+
+        % Check if the column vector is the zero vector
+        if any(all_complex(:, j)) == 0
+            complex = '0';
+        
+        % Otherwise, go through each entry of the vector to form the complex
+        else
+            for k = 1:size(all_complex, 1)
+
+                % Skip if the first element is 0
+                if (k == 1) && (all_complex(k, j) == 0)
+                    continue
+
+                % If the first element is 1, don't use a coefficient
+                elseif (k == 1) && (all_complex(k, j) == 1)
+                    complex = model_P(i).species{k};
+                
+                % Use a coefficient if the first element is not 1
+                elseif (k == 1) && (all_complex(k, j) ~= 0) && (all_complex(k, j) ~= 1)
+                    complex = [all_complex(k,j) model_P(i).species{k}];
+                
+                % Skip the 0s
+                elseif (k ~= 1) && (all_complex(k, j) == 0)
+                    continue
+
+                % Don't use a coefficient if it's 1
+                elseif (k ~= 1) && (all_complex(k, j) == 1)
+                    if isempty(complex) == 1
+                        complex = model_P(i).species{k};
+                    else
+                        complex = [complex '+' model_P(i).species{k}];
+                    end
+                
+                % Use a coefficient if the first element is not 1
+                elseif (k ~= 1) && (all_complex(k, j) ~= 0) && (all_complex(k, j) ~= 1)
+                    if isempty(complex) == 1
+                        complex = [all_complex(k,j) model_P(i).species{k}];
+                    else
+                        complex = [complex '+' all_complex(k,j) model_P(i).species{k}];
+                    end
+                end
+            end
+        end
+
+        % Add the complex to the list
+        complexes_subnetwork{end+1} = complex;
+    end
+
+    % Add the subnetwork complexes to the list of all complexes
+    complexes{end+1} = complexes_subnetwork;
 end
+
+% Initialize set of common complexes
+C = { };
+
+% Get the intersection of the set of complexes for pairwise subnetworks
+for i = 1:size(complexes, 2)
+    
+    for j = i+1:size(complexes, 2)
+        
+        common_complexes = intersect(complexes{i}, complexes{j});
+
+        % Add to the list of the intersection is nonempty
+        if isempty(common_complexes) == 0
+            C{end+1} = common_complexes;
+        end
+    end
+end
+
+% Convert cells to list
+C = string([C{:}]);
+
+% Get unique elements only
+C = unique(C);
 
 % Get the sum of each network number of the subnetworks
 sums = sum(cell2mat(sums), 2);
@@ -358,6 +462,11 @@ results = convertvars(results, results.Properties.VariableNames, 'categorical');
 % Display the table
 fprintf('Some network numbers:\n\n')
 disp(results([12, 13, 11], :))
+
+% Display the set of common complexes
+fprintf('\nSet of common complexes:\n\n')
+fprintf('C = {%s}\n', strjoin(C, ', '))
+fprintf('|C| = %d\n\n', numel(C))
 
 end
 
@@ -396,7 +505,7 @@ end
 %                                                                     %
 % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % %
 
-function [model, characteristics, notation, network] = networkNumbers(model)
+function [model, all_complex, characteristics, notation, network] = networkNumbers(model)
     
 %
 % Create a list of all species indicated in the reactions
